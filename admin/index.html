@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Admin — Client Document Intake</title>
+<link rel="icon" href="/assets/logo-wwc-300-round.png" />
+<link rel="stylesheet" href="/assets/style.css?v=7" />
+<style>
+  .admin-table{width:100%;border-collapse:collapse;margin-top:8px;}
+  .admin-table th{text-align:left;font-size:12px;color:var(--muted);font-weight:700;
+    text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;border-bottom:1px solid var(--line);}
+  .admin-table td{padding:11px 10px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle;}
+  .admin-table tr:last-child td{border-bottom:none;}
+  .url-cell{display:flex;align-items:center;gap:8px;}
+  .url-cell code{background:#eef0f6;padding:3px 7px;border-radius:6px;font-size:12px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;}
+  .mini{font-size:12px;font-weight:700;padding:5px 10px;border-radius:8px;border:1px solid var(--teal);
+    background:#fff;color:var(--teal);cursor:pointer;}
+  .mini:hover{background:#f3fbf9;}
+  .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;}
+  .badge.on{background:#e3f6f1;color:var(--teal);} .badge.off{background:#fbe7e4;color:var(--err);}
+  .logo-thumb{height:28px;width:28px;border-radius:6px;object-fit:contain;background:#f5f6fa;vertical-align:middle;}
+  .toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;}
+  .who{font-size:13px;color:var(--muted);}
+  .add-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:560px){.add-grid{grid-template-columns:1fr;}}
+  .hint{font-size:12px;color:var(--muted);margin-top:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brandbar">
+    <img class="firm" src="/assets/logo-wwc-300-round.png" alt="WWC" />
+    <span class="firmname">Women's Wealth Collective</span>
+    <span class="spacer"></span>
+    <span id="whoami" class="who"></span>
+  </div>
+
+  <h1>Client Intake — Admin</h1>
+  <p class="sub">Add clients and manage their branded upload links.</p>
+
+  <!-- LOGIN -->
+  <div id="loginCard" class="card" hidden>
+    <div class="field">
+      <label for="email">Admin email</label>
+      <input id="email" type="email" autocomplete="email" placeholder="you@womenswealthcollective360.com" />
+      <div class="hint">A one-time login link will be emailed to you. Only the authorized admin email works.</div>
+    </div>
+    <div id="loginMsg" class="alert" hidden></div>
+    <button id="loginBtn" class="btn full">Email me a login link</button>
+  </div>
+
+  <!-- ADMIN -->
+  <div id="adminCard" hidden>
+    <div class="card">
+      <div class="toolbar">
+        <strong style="color:var(--navy)">Add a new client</strong>
+        <button id="signOut" class="mini">Sign out</button>
+      </div>
+      <div class="add-grid" style="margin-top:14px">
+        <div class="field">
+          <label for="cName">Client name</label>
+          <input id="cName" type="text" placeholder="Acme Holdings" />
+        </div>
+        <div class="field">
+          <label for="cSlug">URL slug</label>
+          <input id="cSlug" type="text" placeholder="acme-holdings" />
+          <div class="hint">lowercase letters, numbers, hyphens. Becomes <code>docs.womenswealthcollective360.com/<span id="slugPreview">slug</span>/</code></div>
+        </div>
+      </div>
+      <div class="field">
+        <label for="cLogo">Client logo (optional)</label>
+        <input id="cLogo" type="file" accept="image/*" />
+      </div>
+      <div id="addMsg" class="alert" hidden></div>
+      <button id="addBtn" class="btn full">Add client &amp; create form</button>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <strong style="color:var(--navy)">Clients</strong>
+        <button id="refreshBtn" class="mini">Refresh</button>
+      </div>
+      <div id="clientsWrap">
+        <p id="clientsEmpty" class="sub" style="margin:14px 0 0" hidden>No clients yet. Add your first one above.</p>
+        <table class="admin-table" id="clientsTable" hidden>
+          <thead><tr><th>Client</th><th>Upload link</th><th>Status</th><th></th></tr></thead>
+          <tbody id="clientsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="bootMsg" class="sub">Loading…</div>
+  <p class="foot">Restricted area. &copy; Women&rsquo;s Wealth Collective.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/assets/config.js?v=7"></script>
+<script src="/assets/admin.js?v=1"></script>
+</body>
+</html>
