@@ -56,8 +56,8 @@
   }
 
   // ---------- edge function calls ----------
-  async function callFn(payload) {
-    var r = await sb.functions.invoke("admin", { body: payload });
+  async function callFnNamed(fnName, payload) {
+    var r = await sb.functions.invoke(fnName, { body: payload || {} });
     if (r.error) {
       // try to surface the function's JSON error message
       var detail = r.error.message || "request failed";
@@ -67,6 +67,7 @@
     if (r.data && r.data.error) throw new Error(r.data.error);
     return r.data;
   }
+  function callFn(payload) { return callFnNamed("admin", payload); }
 
   // ---------- clients list ----------
   var lastClients = [];
@@ -288,6 +289,33 @@
     $("#refreshBtn").addEventListener("click", loadClients);
     $("#reviewRefreshBtn").addEventListener("click", loadNeedsReview);
     $("#binderClient").addEventListener("change", function () { loadBinder($("#binderClient").value); });
+
+    $("#runClassifyBtn").addEventListener("click", async function () {
+      $("#runClassifyBtn").disabled = true;
+      msg("#runClassifyMsg", "Running…", "ok");
+      try {
+        var res = await callFnNamed("process-submission", {});
+        msg("#runClassifyMsg", "Processed " + res.processed + " submission(s).", "ok");
+        await loadNeedsReview();
+      } catch (e) {
+        msg("#runClassifyMsg", e.message, "err");
+      }
+      $("#runClassifyBtn").disabled = false;
+    });
+
+    $("#runDriveBtn").addEventListener("click", async function () {
+      $("#runDriveBtn").disabled = true;
+      msg("#runDriveMsg", "Running…", "ok");
+      try {
+        var res = await callFnNamed("push-to-drive", {});
+        msg("#runDriveMsg", "Processed " + res.processed + " document(s).", "ok");
+        var slug = $("#binderClient").value;
+        if (slug) await loadBinder(slug);
+      } catch (e) {
+        msg("#runDriveMsg", e.message, "err");
+      }
+      $("#runDriveBtn").disabled = false;
+    });
 
     $("#bulkFile").addEventListener("change", async function () {
       var file = $("#bulkFile").files[0];

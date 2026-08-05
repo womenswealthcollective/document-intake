@@ -104,6 +104,26 @@
 
     <div class="card">
       <div class="toolbar">
+        <strong style="color:var(--navy)">Binder pipeline</strong>
+      </div>
+      <p class="sub" style="margin:6px 0 14px">
+        Runs the auto-classify and Drive-push steps immediately, instead of waiting for the schedule.
+        Both are safe to click even if their required secret isn't set yet — they'll just report that clearly.
+      </p>
+      <div class="add-grid">
+        <div>
+          <button id="runClassifyBtn" class="btn full">Classify pending uploads now</button>
+          <div id="runClassifyMsg" class="alert" hidden style="margin-top:10px"></div>
+        </div>
+        <div>
+          <button id="runDriveBtn" class="btn full">Push classified docs to Drive now</button>
+          <div id="runDriveMsg" class="alert" hidden style="margin-top:10px"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
         <strong style="color:var(--navy)">Needs review</strong>
         <button id="reviewRefreshBtn" class="mini">Refresh</button>
       </div>
@@ -151,6 +171,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script src="/assets/admin.js?v=2"></script>
+<script src="/assets/admin.js?v=3"></script>
 </body>
 </html>

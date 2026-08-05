@@ -22,6 +22,23 @@ const CORS = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...CORS, "content-type": "application/json" } });
 
+// Only pg_cron (bearing the service role key) or the single authorized admin
+// (via the dashboard's "run now" button) may invoke this — otherwise anyone
+// who signs up through the public magic-link flow could trigger Drive uploads.
+async function checkAuth(req: Request, admin: ReturnType<typeof createClient>): Promise<Response | null> {
+  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token) return json({ error: "unauthorized" }, 401);
+  if (token === SERVICE_ROLE) return null;
+
+  const { data: ud, error: ue } = await admin.auth.getUser(token);
+  if (ue || !ud?.user?.email) return json({ error: "unauthorized" }, 401);
+
+  const { data: row } = await admin.from("app_secrets").select("value").eq("key", "admin_email").maybeSingle();
+  const adminEmail = row?.value as string | undefined;
+  if (!adminEmail || ud.user.email.toLowerCase() !== adminEmail.toLowerCase()) return json({ error: "forbidden" }, 403);
+  return null;
+}
+
 function b64url(bytes: ArrayBuffer | Uint8Array): string {
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   let s = "";
@@ -133,6 +150,9 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+
+  const authErr = await checkAuth(req, admin);
+  if (authErr) return authErr;
 
   const { data: secretRows } = await admin.from("app_secrets").select("key,value").in("key", ["google_service_account_json"]);
   const saRaw = (secretRows || []).find((r: any) => r.key === "google_service_account_json")?.value;
