@@ -52,6 +52,7 @@
     show("#bootMsg", false); show("#loginCard", false); show("#adminCard", true);
     $("#whoami").textContent = email;
     loadClients();
+    loadNeedsReview();
   }
 
   // ---------- edge function calls ----------
@@ -68,10 +69,14 @@
   }
 
   // ---------- clients list ----------
+  var lastClients = [];
+
   async function loadClients() {
     try {
       var data = await callFn({ action: "list" });
-      renderClients(data.clients || []);
+      lastClients = data.clients || [];
+      renderClients(lastClients);
+      populateBinderSelect(lastClients);
     } catch (e) {
       msg("#addMsg", "Couldn't load clients: " + e.message, "err");
     }
@@ -133,6 +138,136 @@
     });
   }
 
+  // ---------- needs review ----------
+  async function loadNeedsReview() {
+    try {
+      var data = await callFn({ action: "list_needs_review" });
+      renderNeedsReview(data.items || []);
+    } catch (e) {
+      msg("#addMsg", "Couldn't load needs-review items: " + e.message, "err");
+    }
+  }
+
+  function renderNeedsReview(items) {
+    var body = $("#reviewBody"); body.innerHTML = "";
+    show("#reviewTable", items.length > 0);
+    show("#reviewEmpty", items.length === 0);
+    items.forEach(function (it) {
+      var tr = document.createElement("tr");
+      var dt = it.document_types;
+      var guess = dt ? escapeHtml(dt.label) : "Unclassified";
+      var fname = it.submissions ? escapeHtml(it.submissions.original_filename || "") : "";
+      tr.innerHTML =
+        "<td><strong>" + escapeHtml(it.client_slug) + "</strong></td>" +
+        "<td>" + fname + "</td>" +
+        "<td>" + guess + (it.extracted_label ? " &middot; " + escapeHtml(it.extracted_label) : "") + "</td>" +
+        "<td style='color:var(--muted);font-size:13px'>" + escapeHtml(it.classification_notes || "") + "</td>";
+      body.appendChild(tr);
+    });
+  }
+
+  // ---------- client binder ----------
+  function populateBinderSelect(clients) {
+    var sel = $("#binderClient");
+    var current = sel.value;
+    sel.innerHTML = '<option value="">Choose a client…</option>';
+    clients.forEach(function (c) {
+      var opt = document.createElement("option");
+      opt.value = c.slug; opt.textContent = c.name + " (" + c.slug + ")";
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  }
+
+  async function loadBinder(slug) {
+    var wrap = $("#binderWrap");
+    if (!slug) { wrap.innerHTML = ""; return; }
+    wrap.innerHTML = '<p class="sub">Loading…</p>';
+    try {
+      var data = await callFn({ action: "client_binder", slug: slug });
+      renderBinder(data);
+    } catch (e) {
+      wrap.innerHTML = '<div class="alert err">' + escapeHtml(e.message) + "</div>";
+    }
+  }
+
+  function renderBinder(data) {
+    var wrap = $("#binderWrap");
+    var grid = document.createElement("div");
+    grid.className = "check-grid";
+    (data.checklist || []).forEach(function (item) {
+      var got = item.documents.length > 0;
+      var cell = document.createElement("div");
+      cell.className = "check-item " + (got ? "got" : "missing");
+      cell.innerHTML = '<span class="check-dot"></span><span>' + escapeHtml(item.label) +
+        (got ? " (" + item.documents.length + ")" : "") + "</span>";
+      grid.appendChild(cell);
+    });
+    wrap.innerHTML = "";
+    wrap.appendChild(grid);
+
+    if (data.needs_review && data.needs_review.length) {
+      var note = document.createElement("p");
+      note.className = "sub";
+      note.style.marginTop = "14px";
+      note.textContent = data.needs_review.length + " document(s) for this client need manual review (see Needs Review above).";
+      wrap.appendChild(note);
+    }
+  }
+
+  // ---------- bulk import (CSV) ----------
+  var bulkRows = [];
+
+  function parseCsv(text) {
+    var rows = [], row = [], field = "", inQuotes = false;
+    for (var i = 0; i < text.length; i++) {
+      var c = text[i];
+      if (inQuotes) {
+        if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; } }
+        else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(field); field = ""; rows.push(row); row = [];
+      } else field += c;
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(function (r) { return r.some(function (c) { return c.trim() !== ""; }); });
+  }
+
+  function rowsToClients(rows) {
+    if (!rows.length) return [];
+    var header = rows[0].map(function (h) { return h.trim().toLowerCase(); });
+    var nameIdx = header.indexOf("name");
+    if (nameIdx === -1) nameIdx = header.findIndex(function (h) { return h.indexOf("name") !== -1; });
+    if (nameIdx === -1) nameIdx = 0;
+    var slugIdx = header.indexOf("slug");
+    var dataRows = rows.slice(1);
+    return dataRows.map(function (r) {
+      var out = { name: (r[nameIdx] || "").trim() };
+      if (slugIdx !== -1 && r[slugIdx]) out.slug = r[slugIdx].trim().toLowerCase();
+      return out;
+    }).filter(function (r) { return r.name; });
+  }
+
+  function renderBulkResults(res) {
+    var box = $("#bulkResults"); box.innerHTML = "";
+    if (!res || !res.results) return;
+    var table = document.createElement("table");
+    table.className = "admin-table";
+    table.innerHTML = "<thead><tr><th>Name</th><th>Slug</th><th>Result</th></tr></thead>";
+    var tbody = document.createElement("tbody");
+    res.results.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + escapeHtml(r.name || "") + "</td><td>" + escapeHtml(r.slug || "") + "</td><td>" +
+        (r.ok ? '<span class="badge on">Added</span>' : '<span class="badge off">' + escapeHtml(r.error || "Failed") + "</span>") + "</td>";
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    box.appendChild(table);
+  }
+
   // ---------- wire up ----------
   function init() {
     show("#loginCard", false); show("#adminCard", false);
@@ -151,6 +286,34 @@
 
     $("#signOut").addEventListener("click", function () { sb.auth.signOut(); });
     $("#refreshBtn").addEventListener("click", loadClients);
+    $("#reviewRefreshBtn").addEventListener("click", loadNeedsReview);
+    $("#binderClient").addEventListener("change", function () { loadBinder($("#binderClient").value); });
+
+    $("#bulkFile").addEventListener("change", async function () {
+      var file = $("#bulkFile").files[0];
+      $("#bulkResults").innerHTML = ""; show("#bulkMsg", false);
+      if (!file) { bulkRows = []; show("#bulkPreview", false); $("#bulkBtn").disabled = true; return; }
+      var text = await file.text();
+      bulkRows = rowsToClients(parseCsv(text));
+      show("#bulkPreview", true);
+      $("#bulkPreview").textContent = bulkRows.length + " client(s) found in " + file.name + ".";
+      $("#bulkBtn").disabled = bulkRows.length === 0;
+    });
+
+    $("#bulkBtn").addEventListener("click", async function () {
+      if (!bulkRows.length) return;
+      $("#bulkBtn").disabled = true;
+      msg("#bulkMsg", "Importing " + bulkRows.length + " client(s)…", "ok");
+      try {
+        var res = await callFn({ action: "bulk_add", clients: bulkRows });
+        msg("#bulkMsg", "Imported " + res.imported + " of " + res.total + " client(s).", res.imported === res.total ? "ok" : "err");
+        renderBulkResults(res);
+        await loadClients();
+      } catch (e) {
+        msg("#bulkMsg", e.message, "err");
+      }
+      $("#bulkBtn").disabled = false;
+    });
 
     $("#cSlug").addEventListener("input", function () {
       $("#slugPreview").textContent = $("#cSlug").value.trim() || "slug";

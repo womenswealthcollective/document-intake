@@ -27,6 +27,16 @@
   .add-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
   @media(max-width:560px){.add-grid{grid-template-columns:1fr;}}
   .hint{font-size:12px;color:var(--muted);margin-top:4px;}
+  select{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:10px;
+    font-size:15px;font-family:inherit;background:#fff;color:var(--ink);}
+  .check-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:14px;}
+  .check-item{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;
+    border:1px solid var(--line);font-size:13px;}
+  .check-item.got{background:#e3f6f1;border-color:#b8e6db;color:var(--navy);}
+  .check-item.missing{background:#f5f6fa;color:var(--muted);}
+  .check-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;}
+  .check-item.got .check-dot{background:var(--teal);}
+  .check-item.missing .check-dot{background:#c5ccdc;}
 </style>
 </head>
 <body>
@@ -91,6 +101,48 @@
         </table>
       </div>
     </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <strong style="color:var(--navy)">Needs review</strong>
+        <button id="reviewRefreshBtn" class="mini">Refresh</button>
+      </div>
+      <p class="sub" style="margin:6px 0 0">Documents the auto-sorter couldn't confidently classify.</p>
+      <p id="reviewEmpty" class="sub" style="margin:14px 0 0" hidden>Nothing needs review right now.</p>
+      <table class="admin-table" id="reviewTable" hidden>
+        <thead><tr><th>Client</th><th>File</th><th>Guess</th><th>Note</th></tr></thead>
+        <tbody id="reviewBody"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <strong style="color:var(--navy)">Client binder</strong>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label for="binderClient">Client</label>
+        <select id="binderClient"></select>
+      </div>
+      <div id="binderWrap"></div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <strong style="color:var(--navy)">Bulk import clients (CSV)</strong>
+      </div>
+      <p class="hint" style="margin-top:6px">
+        Export your client list from Drake to CSV, then upload it here. Needs a column named
+        <code>name</code> (or the first column is used). An optional <code>slug</code> column
+        overrides the auto-generated URL slug.
+      </p>
+      <div class="field" style="margin-top:14px">
+        <input id="bulkFile" type="file" accept=".csv,text/csv" />
+      </div>
+      <p id="bulkPreview" class="sub" hidden></p>
+      <div id="bulkMsg" class="alert" hidden></div>
+      <button id="bulkBtn" class="btn full" disabled>Import clients</button>
+      <div id="bulkResults" style="margin-top:14px"></div>
+    </div>
   </div>
 
   <div id="bootMsg" class="sub">Loading…</div>
@@ -99,6 +151,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script src="/assets/admin.js?v=1"></script>
+<script src="/assets/admin.js?v=2"></script>
 </body>
 </html>
