@@ -51,6 +51,11 @@
   function enterAdmin(email) {
     show("#bootMsg", false); show("#loginCard", false); show("#adminCard", true);
     $("#whoami").textContent = email;
+    // Strip the magic-link tokens from the URL so a later hard-refresh doesn't
+    // try to replay an already-consumed one-time login, which can force a sign-out.
+    if (location.hash || location.search) {
+      history.replaceState(null, "", location.pathname);
+    }
     loadClients();
     loadNeedsReview();
   }
