@@ -1,18 +1,18 @@
 // push-to-drive — routes classified documents into each client's Google
-// Drive folder, in a subfolder per document type, using a Google service
-// account (JWT bearer OAuth flow — no external deps needed in Deno).
+// Drive folder, in a subfolder per document type, using a standard OAuth
+// refresh-token flow (Google Cloud org policy blocks service-account key
+// creation, so we authenticate as a real Google account instead).
 //
-// Requires an app_secrets row "google_service_account_json" holding the full
-// service-account JSON key (client_email + private_key), and each client's
-// Drive folder (clients.drive_folder_id) must be shared with that service
-// account's email as an Editor. Until that secret exists, this function
-// returns a clear error and touches nothing.
+// Requires an app_secrets row "google_oauth_credentials" holding
+// {"client_id": "...", "client_secret": "...", "refresh_token": "..."} for
+// a Google account that already has access to (or owns) each client's Drive
+// folder referenced by clients.drive_folder_id. Until that secret exists,
+// this function returns a clear error and touches nothing.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BATCH_LIMIT = 20;
-const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -39,55 +39,24 @@ async function checkAuth(req: Request, admin: ReturnType<typeof createClient>): 
   return null;
 }
 
-function b64url(bytes: ArrayBuffer | Uint8Array): string {
-  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  let s = "";
-  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-function utf8(s: string): Uint8Array {
-  return new TextEncoder().encode(s);
+interface GoogleOAuthCreds {
+  client_id: string;
+  client_secret: string;
+  refresh_token: string;
 }
 
-function pemToDer(pem: string): ArrayBuffer {
-  const clean = pem.replace(/-----BEGIN PRIVATE KEY-----/, "").replace(/-----END PRIVATE KEY-----/, "").replace(/\s+/g, "");
-  const bin = atob(clean);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes.buffer;
-}
-
-async function getAccessToken(saJson: { client_email: string; private_key: string }): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const claims = {
-    iss: saJson.client_email,
-    scope: DRIVE_SCOPE,
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-  const signingInput = `${b64url(utf8(JSON.stringify(header)))}.${b64url(utf8(JSON.stringify(claims)))}`;
-
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToDer(saJson.private_key),
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, utf8(signingInput));
-  const jwt = `${signingInput}.${b64url(sig)}`;
-
+async function getAccessToken(creds: GoogleOAuthCreds): Promise<string> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
+      client_id: creds.client_id,
+      client_secret: creds.client_secret,
+      refresh_token: creds.refresh_token,
+      grant_type: "refresh_token",
     }),
   });
-  if (!res.ok) throw new Error(`google oauth token: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`google oauth refresh: ${res.status} ${await res.text()}`);
   const data = await res.json();
   return data.access_token;
 }
@@ -154,16 +123,16 @@ Deno.serve(async (req) => {
   const authErr = await checkAuth(req, admin);
   if (authErr) return authErr;
 
-  const { data: secretRows } = await admin.from("app_secrets").select("key,value").in("key", ["google_service_account_json"]);
-  const saRaw = (secretRows || []).find((r: any) => r.key === "google_service_account_json")?.value;
-  if (!saRaw) return json({ error: "google_service_account_json not set in app_secrets" }, 500);
+  const { data: secretRows } = await admin.from("app_secrets").select("key,value").in("key", ["google_oauth_credentials"]);
+  const credsRaw = (secretRows || []).find((r: any) => r.key === "google_oauth_credentials")?.value;
+  if (!credsRaw) return json({ error: "google_oauth_credentials not set in app_secrets" }, 500);
 
-  let sa: { client_email: string; private_key: string };
+  let creds: GoogleOAuthCreds;
   try {
-    sa = JSON.parse(saRaw);
-    if (!sa.client_email || !sa.private_key) throw new Error("missing client_email/private_key");
+    creds = JSON.parse(credsRaw);
+    if (!creds.client_id || !creds.client_secret || !creds.refresh_token) throw new Error("missing client_id/client_secret/refresh_token");
   } catch (e) {
-    return json({ error: `google_service_account_json is not valid: ${(e as Error).message}` }, 500);
+    return json({ error: `google_oauth_credentials is not valid: ${(e as Error).message}` }, 500);
   }
 
   const { data: pending, error: qErr } = await admin
@@ -183,7 +152,7 @@ Deno.serve(async (req) => {
 
   let token: string;
   try {
-    token = await getAccessToken(sa);
+    token = await getAccessToken(creds);
   } catch (e) {
     return json({ error: `could not get Google access token: ${(e as Error).message}` }, 500);
   }
