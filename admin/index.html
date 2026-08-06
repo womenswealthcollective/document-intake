@@ -90,20 +90,6 @@
 
     <div class="card">
       <div class="toolbar">
-        <strong style="color:var(--navy)">Clients</strong>
-        <button id="refreshBtn" class="mini">Refresh</button>
-      </div>
-      <div id="clientsWrap">
-        <p id="clientsEmpty" class="sub" style="margin:14px 0 0" hidden>No clients yet. Add your first one above.</p>
-        <table class="admin-table" id="clientsTable" hidden>
-          <thead><tr><th>Client</th><th>Upload link</th><th>Status</th><th></th></tr></thead>
-          <tbody id="clientsBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="toolbar">
         <strong style="color:var(--navy)">Binder pipeline</strong>
       </div>
       <p class="sub" style="margin:6px 0 14px">
@@ -162,6 +148,20 @@
       <div id="bulkMsg" class="alert" hidden></div>
       <button id="bulkBtn" class="btn full" disabled>Import clients</button>
       <div id="bulkResults" style="margin-top:14px"></div>
+    </div>
+
+    <div class="card">
+      <div class="toolbar">
+        <strong style="color:var(--navy)">Clients</strong>
+        <button id="refreshBtn" class="mini">Refresh</button>
+      </div>
+      <div id="clientsWrap">
+        <p id="clientsEmpty" class="sub" style="margin:14px 0 0" hidden>No clients yet. Add your first one above.</p>
+        <table class="admin-table" id="clientsTable" hidden>
+          <thead><tr><th>Client</th><th>Upload link</th><th>Status</th><th></th></tr></thead>
+          <tbody id="clientsBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
