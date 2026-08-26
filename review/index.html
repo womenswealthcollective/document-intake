@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Review — Client Document Intake</title>
+<link rel="icon" href="/assets/logo-wwc-300-round.png" />
+<link rel="stylesheet" href="/assets/style.css?v=7" />
+<style>
+  .review-layout{display:grid;grid-template-columns:260px 1fr;gap:0;height:calc(100vh - 180px);
+    min-height:520px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff;box-shadow:var(--shadow);}
+  .rv-sidebar{border-right:1px solid var(--line);overflow-y:auto;background:#fafbfe;}
+  .rv-sidebar h3{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);
+    padding:14px 16px 8px;margin:0;}
+  .rv-item{display:block;width:100%;text-align:left;padding:10px 16px;border:none;background:none;
+    cursor:pointer;font-size:14px;color:var(--navy);border-left:3px solid transparent;}
+  .rv-item:hover{background:#eef0f6;}
+  .rv-item.active{background:#e3f6f1;border-left-color:var(--teal);font-weight:700;}
+  .rv-item .rv-sub{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:2px;}
+  .rv-main{display:flex;flex-direction:column;min-width:0;}
+  .rv-toolbar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);
+    flex:0 0 auto;flex-wrap:wrap;}
+  .rv-toolbar .spacer{flex:1;}
+  .rv-canvas-wrap{flex:1;overflow:auto;background:#525659;display:flex;align-items:flex-start;justify-content:center;padding:24px;}
+  .rv-page-shell{position:relative;background:#fff;box-shadow:0 4px 18px rgba(0,0,0,.25);}
+  .rv-page-shell canvas{display:block;}
+  .rv-empty{margin:auto;color:#cfd3da;font-size:14px;text-align:center;padding:40px;}
+  .mini{font-size:12px;font-weight:700;padding:6px 12px;border-radius:8px;border:1px solid var(--teal);
+    background:#fff;color:var(--teal);cursor:pointer;}
+  .mini:hover{background:#f3fbf9;}
+  .mini:disabled{opacity:.4;cursor:not-allowed;}
+  .rv-pagenum{font-size:13px;color:var(--navy);font-weight:600;min-width:70px;text-align:center;}
+  .who{font-size:13px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap" style="max-width:1200px">
+  <div class="brandbar">
+    <img class="firm" src="/assets/logo-wwc-300-round.png" alt="WWC" />
+    <span class="firmname">Women's Wealth Collective</span>
+    <span class="spacer"></span>
+    <span id="whoami" class="who"></span>
+  </div>
+
+  <h1>Workpaper Review</h1>
+  <p class="sub">Open a client's filed documents to view and (soon) annotate them.</p>
+
+  <!-- LOGIN -->
+  <div id="loginCard" class="card" hidden>
+    <div class="field">
+      <label for="email">Staff email</label>
+      <input id="email" type="email" autocomplete="email" placeholder="you@womenswealthcollective360.com" />
+      <div class="hint" style="font-size:12px;color:var(--muted);margin-top:4px">
+        A one-time login link will be emailed to you. Only staff accounts can access this tool.
+      </div>
+    </div>
+    <div id="loginMsg" class="alert" hidden></div>
+    <button id="loginBtn" class="btn full">Email me a login link</button>
+  </div>
+
+  <!-- REVIEWER -->
+  <div id="reviewerCard" hidden>
+    <div class="review-layout">
+      <div class="rv-sidebar">
+        <h3>Clients</h3>
+        <div id="clientList"></div>
+        <h3 id="docsHeading" hidden>Documents</h3>
+        <div id="docList"></div>
+      </div>
+      <div class="rv-main">
+        <div class="rv-toolbar">
+          <button id="prevPage" class="mini" disabled>&larr; Prev</button>
+          <span id="pageNum" class="rv-pagenum">—</span>
+          <button id="nextPage" class="mini" disabled>Next &rarr;</button>
+          <span class="spacer"></span>
+          <button id="zoomOut" class="mini" disabled>−</button>
+          <span id="zoomLevel" class="rv-pagenum" style="min-width:44px">100%</span>
+          <button id="zoomIn" class="mini" disabled>+</button>
+          <span class="spacer"></span>
+          <button id="signOut" class="mini">Sign out</button>
+        </div>
+        <div id="canvasWrap" class="rv-canvas-wrap">
+          <div class="rv-empty" id="rvEmpty">Select a client, then a document, to view it here.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="bootMsg" class="sub">Loading…</div>
+  <p class="foot">Staff only. &copy; Women&rsquo;s Wealth Collective.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4/legacy/build/pdf.min.js"></script>
+<script src="/assets/config.js?v=7"></script>
+<script src="/assets/review.js?v=1"></script>
+</body>
+</html>
