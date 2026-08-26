@@ -1,7 +1,15 @@
 /* Workpaper Review Layer — /review/ page logic.
    Staff-only. Security is enforced by Postgres RLS (is_staff()), NOT by this
    script — the client-side is_staff() check below is UX only, same relation
-   as admin.js's ADMIN_EMAIL check to the admin edge function's real gate. */
+   as admin.js's ADMIN_EMAIL check to the admin edge function's real gate.
+
+   This file is loaded as a real ES module (<script type="module">) because
+   pdfjs-dist v4+ ships ESM-only (no classic global-script build exists in
+   this package anymore, confirmed against the published file listing) —
+   unlike supabase-js, which still loads as a classic global script below.
+   Pinned to a verified version rather than a floating "@4" tag. */
+import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs";
+
 (function () {
   "use strict";
   var cfg = window.INTAKE_CONFIG;
@@ -13,7 +21,7 @@
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "wwc-review" }
   });
 
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4/legacy/build/pdf.worker.min.js";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
 
   var $ = function (s) { return document.querySelector(s); };
   function show(id, on) { var el = $(id); if (el) el.hidden = !on; }
@@ -114,7 +122,7 @@
     var dl = await sb.storage.from("workpaper-docs").download(doc.storage_path);
     if (dl.error) { console.error(dl.error); $("#pageNum").textContent = "Error"; return; }
     var buf = await dl.data.arrayBuffer();
-    var task = window.pdfjsLib.getDocument({ data: buf });
+    var task = pdfjsLib.getDocument({ data: buf });
     var pdfDoc = await task.promise;
     state.pdfDoc = pdfDoc; state.pageNum = 1; state.pageCount = pdfDoc.numPages; state.docId = doc.id;
     setToolbarEnabled(true);
