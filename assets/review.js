@@ -10,6 +10,17 @@
    Pinned to a verified version rather than a floating "@4" tag. */
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs";
 
+// Browsers refuse to construct a Worker directly from a cross-origin URL
+// (confirmed: "Failed to construct 'Worker': Script ... cannot be accessed
+// from origin ..."). page.render() then hangs forever instead of erroring,
+// because pdf.js's internal worker-setup failure isn't surfaced as a clean
+// rejection. Fix: fetch the worker script ourselves and load it from a
+// same-origin blob: URL — the standard workaround for cross-origin workers.
+// Top-level await works because this file is a real ES module.
+const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs")
+  .then(function (r) { return r.text(); })
+  .then(function (text) { return URL.createObjectURL(new Blob([text], { type: "application/javascript" })); });
+
 (function () {
   "use strict";
   var cfg = window.INTAKE_CONFIG;
@@ -21,7 +32,7 @@ import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storageKey: "wwc-review" }
   });
 
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.worker.min.mjs";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerBlobUrl;
 
   var $ = function (s) { return document.querySelector(s); };
   function show(id, on) { var el = $(id); if (el) el.hidden = !on; }
