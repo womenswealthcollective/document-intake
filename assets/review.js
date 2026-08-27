@@ -58,6 +58,15 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   var currentUserEmail = null;
   var LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+  // ---- tie marks (M5) ----
+  // A tie links two figures that should agree. Both ends can be on different
+  // pages or even different documents, so a tie is stored as two endpoints and
+  // rendered either as a connecting line (same page) or as numbered anchors
+  // that jump to the other end.
+  var allDocs = [];         // documents for the selected client (for titles/navigation)
+  var ties = [];            // ties with at least one endpoint in the open document
+  var pendingTie = null;    // first endpoint, waiting for the second click
+
   // ---------- session / routing ----------
   async function boot() {
     var res = await sb.auth.getSession();
@@ -142,6 +151,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     var res = await sb.from("workpaper_documents").select("id,title,category,storage_path")
       .eq("client_slug", slug).order("created_at", { ascending: false });
     if (res.error) { console.error(res.error); return; }
+    allDocs = res.data || [];   // cached so tie anchors can name/navigate to their other end
     var box = $("#docList"); box.innerHTML = "";
     if (!res.data || !res.data.length) {
       box.innerHTML = '<div class="rv-sub" style="padding:8px 16px;color:var(--muted)">No documents yet.</div>';
@@ -181,6 +191,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
       setToolbarEnabled(true);
       setToolsEnabled(true);
       await loadAnnotations(doc.id);
+      await loadTies(doc.id);
       await renderPage();
     } catch (err) {
       // Surface failures instead of leaving the viewer stuck on "Loading…"
@@ -210,9 +221,12 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     if (btn) btn.classList.add("active");
     var layer = $("#annoLayer");
     if (layer) layer.classList.toggle("placing", type !== "none");
+    if (type !== "tie") cancelPendingTie();
     $("#toolHint").textContent = type === "none"
       ? "Select mode — click a mark to see who placed it, or delete it."
-      : (type === "note" ? "Click on the page to add a note." : "Click on the page to place " + tool.symbol + ".");
+      : type === "note" ? "Click on the page to add a note."
+      : type === "tie" ? "Click the first figure, then its match (you can switch pages or documents in between)."
+      : "Click on the page to place " + tool.symbol + ".";
   }
 
   async function addAnnotation(xNorm, yNorm) {
@@ -238,6 +252,146 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     drawAnnotations();
   }
 
+  // ---------- tie marks ----------
+  async function loadTies(docId) {
+    // a tie is relevant if EITHER endpoint is in this document
+    var res = await sb.from("ties").select("*").or("doc_a.eq." + docId + ",doc_b.eq." + docId);
+    if (res.error) { console.error("load ties:", res.error); ties = []; return; }
+    ties = res.data || [];
+  }
+
+  function docTitle(docId) {
+    var d = allDocs.filter(function (x) { return x.id === docId; })[0];
+    return d ? d.title : "another document";
+  }
+
+  function nextTieLabel() {
+    var nums = ties.map(function (t) { return parseInt(t.label, 10); }).filter(function (n) { return !isNaN(n); });
+    return String((nums.length ? Math.max.apply(null, nums) : 0) + 1);
+  }
+
+  async function handleTieClick(xNorm, yNorm) {
+    if (!pendingTie) {
+      pendingTie = { docId: state.docId, page: state.pageNum, x: xNorm, y: yNorm };
+      $("#toolHint").textContent = "First point set. Now click the matching figure — you can switch pages or documents first. (Esc to cancel)";
+      drawAnnotations();
+      return;
+    }
+    // second click completes the tie
+    var row = {
+      doc_a: pendingTie.docId, page_a: pendingTie.page, x_a: pendingTie.x, y_a: pendingTie.y,
+      doc_b: state.docId, page_b: state.pageNum, x_b: xNorm, y_b: yNorm,
+      label: nextTieLabel(), color: "#1d6fd8", created_by: currentUserEmail
+    };
+    var res = await sb.from("ties").insert(row).select();
+    if (res.error) { console.error("save tie:", res.error); alert("Couldn't save that tie: " + res.error.message); pendingTie = null; return; }
+    ties.push((res.data && res.data[0]) || row);
+    pendingTie = null;
+    $("#toolHint").textContent = "Tie created. Click another figure to start the next tie.";
+    drawAnnotations();
+  }
+
+  function cancelPendingTie() {
+    if (!pendingTie) return;
+    pendingTie = null;
+    $("#toolHint").textContent = "Tie cancelled. Click a figure to start a new tie.";
+    drawAnnotations();
+  }
+
+  async function deleteTie(id) {
+    var res = await sb.from("ties").delete().eq("id", id);
+    if (res.error) { console.error("delete tie:", res.error); return; }
+    ties = ties.filter(function (t) { return t.id !== id; });
+    drawAnnotations();
+  }
+
+  // Draws ties for the current page: a connecting line when both ends are on
+  // this page, otherwise a numbered anchor that navigates to the other end.
+  function drawTies(layer) {
+    var here = function (docId, page) { return docId === state.docId && Number(page) === state.pageNum; };
+
+    // SVG layer for connecting lines (only needed for same-page ties)
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "rv-tie-svg");
+    svg.setAttribute("viewBox", "0 0 100 100");
+    svg.setAttribute("preserveAspectRatio", "none");
+    layer.appendChild(svg);
+
+    ties.forEach(function (t) {
+      var aHere = here(t.doc_a, t.page_a), bHere = here(t.doc_b, t.page_b);
+      if (!aHere && !bHere) return;
+
+      if (aHere && bHere) {
+        var line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", Number(t.x_a) * 100); line.setAttribute("y1", Number(t.y_a) * 100);
+        line.setAttribute("x2", Number(t.x_b) * 100); line.setAttribute("y2", Number(t.y_b) * 100);
+        line.setAttribute("stroke", t.color || "#1d6fd8");
+        line.setAttribute("stroke-width", "0.35");
+        line.setAttribute("vector-effect", "non-scaling-stroke");
+        svg.appendChild(line);
+      }
+
+      // an anchor for each endpoint that's on this page
+      [["a", aHere], ["b", bHere]].forEach(function (pair) {
+        if (!pair[1]) return;
+        var side = pair[0];
+        var otherDoc = side === "a" ? t.doc_b : t.doc_a;
+        var otherPage = side === "a" ? t.page_b : t.page_a;
+        var sameSpot = aHere && bHere;
+
+        var el = document.createElement("div");
+        el.className = "anno tie" + (sameSpot ? " tie-linked" : "");
+        el.style.left = (Number(side === "a" ? t.x_a : t.x_b) * 100) + "%";
+        el.style.top = (Number(side === "a" ? t.y_a : t.y_b) * 100) + "%";
+        el.style.borderColor = t.color || "#1d6fd8";
+        el.style.color = t.color || "#1d6fd8";
+        el.textContent = t.label || "•";
+
+        var tipText = "Tie " + (t.label || "") + "\n"
+          + (sameSpot ? "Both ends on this page."
+                      : "Other end: " + docTitle(otherDoc) + " (p." + otherPage + ") — click to jump")
+          + "\n— " + (t.created_by || "unknown")
+          + (t.created_at ? "\n" + new Date(t.created_at).toLocaleString() : "");
+        el.addEventListener("mouseenter", function () { showTip(el, tipText); });
+        el.addEventListener("mouseleave", hideTip);
+        el.addEventListener("click", function (e) {
+          e.stopPropagation();
+          if (!sameSpot) { jumpToTieEnd(otherDoc, otherPage); return; }
+          if (t.id && window.confirm("Delete tie " + t.label + "?")) deleteTie(t.id);
+        });
+        el.addEventListener("contextmenu", function (e) {
+          e.preventDefault(); e.stopPropagation();
+          if (t.id && window.confirm("Delete tie " + t.label + "?")) deleteTie(t.id);
+        });
+        layer.appendChild(el);
+      });
+    });
+
+    // show the half-finished tie so it's obvious one is in progress
+    if (pendingTie && pendingTie.docId === state.docId && pendingTie.page === state.pageNum) {
+      var p = document.createElement("div");
+      p.className = "anno tie tie-pending";
+      p.style.left = (pendingTie.x * 100) + "%";
+      p.style.top = (pendingTie.y * 100) + "%";
+      p.textContent = "?";
+      layer.appendChild(p);
+    }
+  }
+
+  async function jumpToTieEnd(docId, page) {
+    var target = allDocs.filter(function (d) { return d.id === docId; })[0];
+    if (!target) { alert("That document isn't in this client's list."); return; }
+    if (docId === state.docId) { state.pageNum = Number(page); await renderPage(); return; }
+    // highlight it in the sidebar too, so the UI stays truthful about what's open
+    var btns = Array.prototype.slice.call(document.querySelectorAll("#docList .rv-item"));
+    btns.forEach(function (b) { b.classList.remove("active"); });
+    var match = btns.filter(function (b) { return b.textContent.indexOf(target.title) === 0; })[0];
+    if (match) match.classList.add("active");
+    await openDocument(target);
+    state.pageNum = Number(page);
+    await renderPage();
+  }
+
   async function deleteAnnotation(id) {
     var res = await sb.from("annotations").delete().eq("id", id);
     if (res.error) { console.error("delete annotation:", res.error); return; }
@@ -251,6 +405,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     var layer = $("#annoLayer");
     if (!layer) return;
     layer.innerHTML = "";
+    drawTies(layer);
     annotations.filter(function (a) { return Number(a.page) === state.pageNum; }).forEach(function (a) {
       var el = document.createElement("div");
       el.className = "anno " + a.type;
@@ -325,6 +480,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
       var xNorm = (e.clientX - rect.left) / rect.width;
       var yNorm = (e.clientY - rect.top) / rect.height;
       if (xNorm < 0 || xNorm > 1 || yNorm < 0 || yNorm > 1) return;
+      if (tool.type === "tie") { handleTieClick(xNorm, yNorm); return; }
       addAnnotation(xNorm, yNorm);
     });
     shell.appendChild(layer);
@@ -357,6 +513,8 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     $("#signOut").addEventListener("click", function () { sb.auth.signOut(); });
     $("#clientSearch").addEventListener("input", renderClientList);
     $("#showInactive").addEventListener("change", renderClientList);
+    // Esc abandons a half-finished tie
+    document.addEventListener("keydown", function (e) { if (e.key === "Escape") cancelPendingTie(); });
 
     // Annotation toolbar: pick a mark, then click the page to place it.
     document.querySelectorAll(".tool-btn").forEach(function (btn) {
@@ -364,6 +522,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
         var type = btn.dataset.tool;
         if (type === "none") { setTool("none", null, btn); return; }
         if (type === "note") { setTool("note", null, btn); return; }
+        if (type === "tie") { setTool("tie", null, btn); return; }
         var sym = btn.dataset.symbol;
         // The letter button cycles A→B→C… on repeat clicks while already active.
         if (LETTERS.indexOf(sym) !== -1 && btn.classList.contains("active")) {

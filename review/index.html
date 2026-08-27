@@ -64,6 +64,12 @@
     box-shadow:0 1px 3px rgba(0,0,0,.3);}
   .anno.calc_stamp{font-size:12px;background:rgba(255,255,255,.95);border:1px solid var(--navy);
     border-radius:4px;padding:2px 5px;color:var(--navy);white-space:nowrap;}
+  /* tie endpoints: numbered circles; a cross-document tie is clickable to jump */
+  .anno.tie{width:20px;height:20px;border-radius:50%;background:rgba(255,255,255,.95);
+    border:2px solid #1d6fd8;color:#1d6fd8;font-size:11px;display:flex;align-items:center;
+    justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.25);}
+  .anno.tie-pending{border-style:dashed;border-color:#c0392b;color:#c0392b;}
+  .rv-tie-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
   .anno:hover{outline:2px solid var(--teal);outline-offset:2px;}
   .anno-tip{position:absolute;z-index:20;background:var(--navy);color:#fff;font-size:11px;font-weight:400;
     padding:6px 9px;border-radius:6px;max-width:240px;pointer-events:none;transform:translate(-50%,-115%);
@@ -128,6 +134,7 @@
           <button class="tool-btn" data-tool="tic" data-symbol="•" title="Dot" disabled>•</button>
           <button class="tool-btn" data-tool="tic" data-symbol="A" title="Letter (click to cycle A-Z)" disabled>A</button>
           <button class="tool-btn" data-tool="note" title="Sticky note" disabled>&#9998;</button>
+          <button class="tool-btn" data-tool="tie" title="Tie two figures together (click one, then the other — can be on another page or document)" disabled>&#8644;</button>
           <span class="spacer"></span>
           <span id="toolHint" class="rv-hint">Select a document to start marking.</span>
         </div>
@@ -144,6 +151,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script type="module" src="/assets/review.js?v=7"></script>
+<script type="module" src="/assets/review.js?v=8"></script>
 </body>
 </html>
