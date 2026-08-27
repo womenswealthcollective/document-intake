@@ -163,19 +163,31 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
 
   // ---------- pdf viewer ----------
   async function openDocument(doc) {
-    $("#rvEmpty").hidden = true;
+    // NOTE: #rvEmpty lives inside #canvasWrap, which renderPage() clears via
+    // innerHTML — so it does NOT exist after the first document is opened.
+    // Guard it, or opening a SECOND document throws and silently aborts.
+    var empty = $("#rvEmpty");
+    if (empty) empty.hidden = true;
+
     setToolbarEnabled(false);
     $("#pageNum").textContent = "Loading…";
-    var dl = await sb.storage.from("workpaper-docs").download(doc.storage_path);
-    if (dl.error) { console.error(dl.error); $("#pageNum").textContent = "Error"; return; }
-    var buf = await dl.data.arrayBuffer();
-    var task = pdfjsLib.getDocument({ data: buf });
-    var pdfDoc = await task.promise;
-    state.pdfDoc = pdfDoc; state.pageNum = 1; state.pageCount = pdfDoc.numPages; state.docId = doc.id;
-    setToolbarEnabled(true);
-    setToolsEnabled(true);
-    await loadAnnotations(doc.id);
-    renderPage();
+    try {
+      var dl = await sb.storage.from("workpaper-docs").download(doc.storage_path);
+      if (dl.error) throw new Error("Download failed: " + dl.error.message);
+      var buf = await dl.data.arrayBuffer();
+      var task = pdfjsLib.getDocument({ data: buf });
+      var pdfDoc = await task.promise;
+      state.pdfDoc = pdfDoc; state.pageNum = 1; state.pageCount = pdfDoc.numPages; state.docId = doc.id;
+      setToolbarEnabled(true);
+      setToolsEnabled(true);
+      await loadAnnotations(doc.id);
+      await renderPage();
+    } catch (err) {
+      // Surface failures instead of leaving the viewer stuck on "Loading…"
+      console.error("openDocument failed:", err);
+      $("#pageNum").textContent = "Error";
+      $("#toolHint").textContent = "Couldn't open that document: " + (err.message || err);
+    }
   }
 
   // ---------- annotations ----------
