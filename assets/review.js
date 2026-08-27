@@ -47,6 +47,8 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   // ---------- viewer state ----------
   var state = { pdfDoc: null, pageNum: 1, pageCount: 0, scaleIdx: 2, docId: null };
   var SCALES = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  var allClients = [];      // full list from the DB; the sidebar renders a filtered view
+  var selectedSlug = null;  // keeps the highlight correct across re-filters
 
   // ---------- session / routing ----------
   async function boot() {
@@ -84,17 +86,42 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   async function loadClients() {
     var res = await sb.from("clients").select("slug,name,active").order("name");
     if (res.error) { console.error(res.error); return; }
+    allClients = res.data || [];
+    renderClientList();
+  }
+
+  // Filters by the search box and (by default) hides deactivated former
+  // clients — with 120 clients, an unfiltered alphabetical list is unusable.
+  function renderClientList() {
+    var q = ($("#clientSearch").value || "").trim().toLowerCase();
+    var showInactive = $("#showInactive").checked;
     var box = $("#clientList"); box.innerHTML = "";
-    (res.data || []).forEach(function (c) {
+
+    var list = allClients.filter(function (c) {
+      if (!showInactive && !c.active) return false;
+      if (!q) return true;
+      return (c.name || "").toLowerCase().indexOf(q) !== -1;
+    });
+
+    list.forEach(function (c) {
       var b = document.createElement("button");
       b.type = "button"; b.className = "rv-item"; b.dataset.slug = c.slug;
-      b.innerHTML = c.name + (c.active ? "" : ' <span class="rv-sub">(inactive)</span>');
+      b.innerHTML = escapeHtml(c.name) + (c.active ? "" : ' <span class="rv-sub">(inactive)</span>');
+      if (c.slug === selectedSlug) b.classList.add("active");
       b.addEventListener("click", function () { selectClient(c.slug, b); });
       box.appendChild(b);
     });
+
+    var hiddenCount = allClients.length - list.length;
+    $("#clientCount").textContent = list.length + " client" + (list.length === 1 ? "" : "s")
+      + (hiddenCount > 0 ? " (" + hiddenCount + " hidden)" : "");
+    if (!list.length) {
+      box.innerHTML = '<div class="rv-sub" style="padding:8px 16px;color:var(--muted)">No matching clients.</div>';
+    }
   }
 
   function selectClient(slug, btn) {
+    selectedSlug = slug;
     document.querySelectorAll("#clientList .rv-item").forEach(function (b) { b.classList.remove("active"); });
     if (btn) btn.classList.add("active");
     show("#docsHeading", true);
@@ -197,6 +224,8 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     });
 
     $("#signOut").addEventListener("click", function () { sb.auth.signOut(); });
+    $("#clientSearch").addEventListener("input", renderClientList);
+    $("#showInactive").addEventListener("change", renderClientList);
 
     $("#prevPage").addEventListener("click", function () { if (state.pageNum > 1) { state.pageNum--; renderPage(); } });
     $("#nextPage").addEventListener("click", function () { if (state.pageNum < state.pageCount) { state.pageNum++; renderPage(); } });

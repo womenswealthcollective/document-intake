@@ -13,6 +13,16 @@
   .rv-sidebar{border-right:1px solid var(--line);overflow-y:auto;background:#fafbfe;}
   .rv-sidebar h3{font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);
     padding:14px 16px 8px;margin:0;}
+  /* 120 clients is far too many to scroll — search is essential, and it sticks
+     to the top of the sidebar so it stays reachable while scrolling. */
+  .rv-search-wrap{position:sticky;top:0;z-index:2;background:#fafbfe;padding:12px 12px 8px;
+    border-bottom:1px solid var(--line);}
+  .rv-search{width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:8px;
+    font-size:13px;font-family:inherit;background:#fff;color:var(--ink);}
+  .rv-search:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(42,157,143,.15);}
+  .rv-count{font-size:11px;color:var(--muted);padding:6px 16px 0;}
+  .rv-toggle{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
+    padding:8px 12px 0;cursor:pointer;user-select:none;}
   .rv-item{display:block;width:100%;text-align:left;padding:10px 16px;border:none;background:none;
     cursor:pointer;font-size:14px;color:var(--navy);border-left:3px solid transparent;}
   .rv-item:hover{background:#eef0f6;}
@@ -63,7 +73,11 @@
   <div id="reviewerCard" hidden>
     <div class="review-layout">
       <div class="rv-sidebar">
-        <h3>Clients</h3>
+        <div class="rv-search-wrap">
+          <input id="clientSearch" class="rv-search" type="search" placeholder="Search clients…" autocomplete="off" />
+          <label class="rv-toggle"><input id="showInactive" type="checkbox" /> Show inactive clients</label>
+        </div>
+        <div id="clientCount" class="rv-count"></div>
         <div id="clientList"></div>
         <h3 id="docsHeading" hidden>Documents</h3>
         <div id="docList"></div>
@@ -93,6 +107,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script type="module" src="/assets/review.js?v=4"></script>
+<script type="module" src="/assets/review.js?v=5"></script>
 </body>
 </html>
