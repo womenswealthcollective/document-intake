@@ -42,6 +42,32 @@
   .mini:disabled{opacity:.4;cursor:not-allowed;}
   .rv-pagenum{font-size:13px;color:var(--navy);font-weight:600;min-width:70px;text-align:center;}
   .who{font-size:13px;color:var(--muted);}
+
+  /* ---- annotation tools (M4) ---- */
+  .rv-tools{display:flex;align-items:center;gap:6px;padding:8px 16px;border-bottom:1px solid var(--line);
+    flex:0 0 auto;flex-wrap:wrap;background:#fafbfe;}
+  .rv-tools .tool-label{font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);
+    font-weight:700;margin-right:2px;}
+  .tool-btn{font-size:14px;font-weight:700;min-width:34px;height:30px;padding:0 8px;border-radius:8px;
+    border:1px solid var(--line);background:#fff;color:var(--navy);cursor:pointer;line-height:1;}
+  .tool-btn:hover{border-color:var(--teal);background:#f3fbf9;}
+  .tool-btn.active{background:var(--teal);border-color:var(--teal);color:#fff;}
+  .tool-btn:disabled{opacity:.4;cursor:not-allowed;}
+  .rv-hint{font-size:11px;color:var(--muted);}
+  /* the annotation layer sits exactly on top of the rendered page canvas */
+  .rv-anno-layer{position:absolute;inset:0;}
+  .rv-anno-layer.placing{cursor:crosshair;}
+  .anno{position:absolute;transform:translate(-50%,-50%);font-weight:700;line-height:1;
+    user-select:none;pointer-events:auto;cursor:pointer;}
+  .anno.tic{font-size:20px;text-shadow:0 0 3px rgba(255,255,255,.95);}
+  .anno.note{width:18px;height:18px;border-radius:4px;background:#f6c344;border:1px solid #c99a1f;
+    box-shadow:0 1px 3px rgba(0,0,0,.3);}
+  .anno.calc_stamp{font-size:12px;background:rgba(255,255,255,.95);border:1px solid var(--navy);
+    border-radius:4px;padding:2px 5px;color:var(--navy);white-space:nowrap;}
+  .anno:hover{outline:2px solid var(--teal);outline-offset:2px;}
+  .anno-tip{position:absolute;z-index:20;background:var(--navy);color:#fff;font-size:11px;font-weight:400;
+    padding:6px 9px;border-radius:6px;max-width:240px;pointer-events:none;transform:translate(-50%,-115%);
+    box-shadow:0 4px 14px rgba(0,0,0,.3);white-space:pre-wrap;}
 </style>
 </head>
 <body>
@@ -54,7 +80,7 @@
   </div>
 
   <h1>Workpaper Review</h1>
-  <p class="sub">Open a client's filed documents to view and (soon) annotate them.</p>
+  <p class="sub">Open a client's filed documents to review, tick, and annotate them.</p>
 
   <!-- LOGIN -->
   <div id="loginCard" class="card" hidden>
@@ -94,6 +120,17 @@
           <span class="spacer"></span>
           <button id="signOut" class="mini">Sign out</button>
         </div>
+        <div class="rv-tools">
+          <span class="tool-label">Mark</span>
+          <button class="tool-btn" data-tool="none" title="Select / no marking" disabled>&#9099;</button>
+          <button class="tool-btn" data-tool="tic" data-symbol="✓" title="Tick mark" disabled>✓</button>
+          <button class="tool-btn" data-tool="tic" data-symbol="✗" title="Cross" disabled>✗</button>
+          <button class="tool-btn" data-tool="tic" data-symbol="•" title="Dot" disabled>•</button>
+          <button class="tool-btn" data-tool="tic" data-symbol="A" title="Letter (click to cycle A-Z)" disabled>A</button>
+          <button class="tool-btn" data-tool="note" title="Sticky note" disabled>&#9998;</button>
+          <span class="spacer"></span>
+          <span id="toolHint" class="rv-hint">Select a document to start marking.</span>
+        </div>
         <div id="canvasWrap" class="rv-canvas-wrap">
           <div class="rv-empty" id="rvEmpty">Select a client, then a document, to view it here.</div>
         </div>
@@ -107,6 +144,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script type="module" src="/assets/review.js?v=5"></script>
+<script type="module" src="/assets/review.js?v=6"></script>
 </body>
 </html>

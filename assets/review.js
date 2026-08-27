@@ -50,6 +50,14 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   var allClients = [];      // full list from the DB; the sidebar renders a filtered view
   var selectedSlug = null;  // keeps the highlight correct across re-filters
 
+  // ---- annotation state (M4) ----
+  // Coordinates are stored NORMALIZED (0..1 of page width/height) so marks stay
+  // correctly positioned at any zoom level and on any screen.
+  var tool = { type: "none", symbol: null };
+  var annotations = [];     // all annotations for the open document (all pages)
+  var currentUserEmail = null;
+  var LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
   // ---------- session / routing ----------
   async function boot() {
     var res = await sb.auth.getSession();
@@ -79,6 +87,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   function enterReviewer(email) {
     show("#bootMsg", false); show("#loginCard", false); show("#reviewerCard", true);
     $("#whoami").textContent = email;
+    currentUserEmail = email;
     loadClients();
   }
 
@@ -164,8 +173,102 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     var pdfDoc = await task.promise;
     state.pdfDoc = pdfDoc; state.pageNum = 1; state.pageCount = pdfDoc.numPages; state.docId = doc.id;
     setToolbarEnabled(true);
+    setToolsEnabled(true);
+    await loadAnnotations(doc.id);
     renderPage();
   }
+
+  // ---------- annotations ----------
+  async function loadAnnotations(docId) {
+    var res = await sb.from("annotations").select("*").eq("workpaper_document_id", docId);
+    if (res.error) { console.error("load annotations:", res.error); annotations = []; return; }
+    annotations = res.data || [];
+  }
+
+  function setToolsEnabled(on) {
+    document.querySelectorAll(".tool-btn").forEach(function (b) { b.disabled = !on; });
+    if (on && tool.type === "none") {
+      $("#toolHint").textContent = "Pick a mark above, then click on the page to place it.";
+    }
+  }
+
+  function setTool(type, symbol, btn) {
+    tool.type = type; tool.symbol = symbol || null;
+    document.querySelectorAll(".tool-btn").forEach(function (b) { b.classList.remove("active"); });
+    if (btn) btn.classList.add("active");
+    var layer = $("#annoLayer");
+    if (layer) layer.classList.toggle("placing", type !== "none");
+    $("#toolHint").textContent = type === "none"
+      ? "Select mode — click a mark to see who placed it, or delete it."
+      : (type === "note" ? "Click on the page to add a note." : "Click on the page to place " + tool.symbol + ".");
+  }
+
+  async function addAnnotation(xNorm, yNorm) {
+    var row = {
+      workpaper_document_id: state.docId,
+      page: state.pageNum,
+      x: xNorm, y: yNorm,
+      type: tool.type,
+      symbol: tool.type === "tic" ? tool.symbol : null,
+      text: null,
+      color: tool.type === "tic" ? "#c0392b" : null,
+      created_by: currentUserEmail
+    };
+    if (tool.type === "note") {
+      var noteText = window.prompt("Note:");
+      if (noteText === null || !noteText.trim()) return;   // cancelled
+      row.text = noteText.trim();
+    }
+    // Insert and read the row back so we have its real id for later deletion.
+    var res = await sb.from("annotations").insert(row).select();
+    if (res.error) { console.error("save annotation:", res.error); alert("Couldn't save that mark: " + res.error.message); return; }
+    annotations.push((res.data && res.data[0]) || row);
+    drawAnnotations();
+  }
+
+  async function deleteAnnotation(id) {
+    var res = await sb.from("annotations").delete().eq("id", id);
+    if (res.error) { console.error("delete annotation:", res.error); return; }
+    annotations = annotations.filter(function (a) { return a.id !== id; });
+    drawAnnotations();
+  }
+
+  // Renders the marks for the CURRENT page onto the overlay, positioned by
+  // their normalized coords so they track the canvas at any zoom.
+  function drawAnnotations() {
+    var layer = $("#annoLayer");
+    if (!layer) return;
+    layer.innerHTML = "";
+    annotations.filter(function (a) { return Number(a.page) === state.pageNum; }).forEach(function (a) {
+      var el = document.createElement("div");
+      el.className = "anno " + a.type;
+      el.style.left = (Number(a.x) * 100) + "%";
+      el.style.top = (Number(a.y) * 100) + "%";
+      if (a.type === "tic") { el.textContent = a.symbol || "✓"; el.style.color = a.color || "#c0392b"; }
+      else if (a.type === "calc_stamp") { el.textContent = a.text || ""; }
+      // note renders as the yellow square from CSS
+
+      var tipText = (a.type === "note" && a.text ? a.text + "\n\n" : "")
+        + "— " + (a.created_by || "unknown")
+        + (a.created_at ? "\n" + new Date(a.created_at).toLocaleString() : "");
+      el.addEventListener("mouseenter", function () { showTip(el, tipText); });
+      el.addEventListener("mouseleave", hideTip);
+      el.addEventListener("click", function (e) {
+        e.stopPropagation();   // don't also place a new mark underneath
+        if (a.id && window.confirm("Delete this mark?\n\n" + tipText)) deleteAnnotation(a.id);
+      });
+      layer.appendChild(el);
+    });
+  }
+
+  function showTip(anchorEl, text) {
+    hideTip();
+    var tip = document.createElement("div");
+    tip.className = "anno-tip"; tip.id = "annoTip"; tip.textContent = text;
+    tip.style.left = anchorEl.style.left; tip.style.top = anchorEl.style.top;
+    anchorEl.parentNode.appendChild(tip);
+  }
+  function hideTip() { var t = document.getElementById("annoTip"); if (t) t.remove(); }
 
   function setToolbarEnabled(on) {
     ["#prevPage", "#nextPage", "#zoomOut", "#zoomIn"].forEach(function (id) { $(id).disabled = !on; });
@@ -199,6 +302,22 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     renderTask.onContinue = function (cont) { cont(); };
     await renderTask.promise;
 
+    // Overlay for marks — sits exactly on the canvas, so a click's position
+    // converts cleanly to normalized page coords regardless of zoom.
+    var layer = document.createElement("div");
+    layer.className = "rv-anno-layer" + (tool.type !== "none" ? " placing" : "");
+    layer.id = "annoLayer";
+    layer.addEventListener("click", function (e) {
+      if (tool.type === "none") return;
+      var rect = layer.getBoundingClientRect();
+      var xNorm = (e.clientX - rect.left) / rect.width;
+      var yNorm = (e.clientY - rect.top) / rect.height;
+      if (xNorm < 0 || xNorm > 1 || yNorm < 0 || yNorm > 1) return;
+      addAnnotation(xNorm, yNorm);
+    });
+    shell.appendChild(layer);
+    drawAnnotations();
+
     $("#pageNum").textContent = state.pageNum + " / " + state.pageCount;
     $("#zoomLevel").textContent = Math.round(scale * 100) + "%";
     $("#prevPage").disabled = state.pageNum <= 1;
@@ -226,6 +345,22 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     $("#signOut").addEventListener("click", function () { sb.auth.signOut(); });
     $("#clientSearch").addEventListener("input", renderClientList);
     $("#showInactive").addEventListener("change", renderClientList);
+
+    // Annotation toolbar: pick a mark, then click the page to place it.
+    document.querySelectorAll(".tool-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var type = btn.dataset.tool;
+        if (type === "none") { setTool("none", null, btn); return; }
+        if (type === "note") { setTool("note", null, btn); return; }
+        var sym = btn.dataset.symbol;
+        // The letter button cycles A→B→C… on repeat clicks while already active.
+        if (LETTERS.indexOf(sym) !== -1 && btn.classList.contains("active")) {
+          var next = LETTERS[(LETTERS.indexOf(sym) + 1) % LETTERS.length];
+          btn.dataset.symbol = next; btn.textContent = next; sym = next;
+        }
+        setTool("tic", sym, btn);
+      });
+    });
 
     $("#prevPage").addEventListener("click", function () { if (state.pageNum > 1) { state.pageNum--; renderPage(); } });
     $("#nextPage").addEventListener("click", function () { if (state.pageNum < state.pageCount) { state.pageNum++; renderPage(); } });
