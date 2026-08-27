@@ -162,7 +162,15 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     wrap.appendChild(shell);
 
     var ctx = canvas.getContext("2d");
-    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    var renderTask = page.render({ canvasContext: ctx, viewport: viewport });
+    // WITHOUT this, render() hangs forever in some embedded/WebView browser
+    // hosts (confirmed via direct testing) — pdf.js's default progressive
+    // rendering yields via an internal scheduling mechanism (rAF-based) that
+    // doesn't reliably fire in every host, even when document.visibilityState
+    // reports "visible". Forcing an immediate continuation sidesteps it and
+    // is harmless in normal browsers too.
+    renderTask.onContinue = function (cont) { cont(); };
+    await renderTask.promise;
 
     $("#pageNum").textContent = state.pageNum + " / " + state.pageCount;
     $("#zoomLevel").textContent = Math.round(scale * 100) + "%";
