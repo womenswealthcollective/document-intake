@@ -180,10 +180,14 @@
           </div>
           <div class="rv-calc-total"><span>Total</span><span id="calcTotal">0.00</span></div>
           <div class="rv-calc-body">
-            <input id="calcInput" type="text" inputmode="decimal" placeholder="Type a figure, press Enter" />
+            <input id="calcInput" type="text" inputmode="decimal" placeholder="Figure or sum, e.g. 1200*0.65" />
             <div class="rv-calc-btns">
-              <button id="calcAdd" title="Add">+</button>
+              <button id="calcAdd" title="Add (Enter)">+</button>
               <button id="calcSub" title="Subtract">&minus;</button>
+              <button id="calcMul" title="Multiply the running total by this">&times;</button>
+              <button id="calcDiv" title="Divide the running total by this">&divide;</button>
+            </div>
+            <div class="rv-calc-btns">
               <button id="calcUndo" title="Remove last entry">&#8592;</button>
               <button id="calcClear" title="Clear tape">C</button>
             </div>
@@ -202,6 +206,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script type="module" src="/assets/review.js?v=9"></script>
+<script type="module" src="/assets/review.js?v=10"></script>
 </body>
 </html>

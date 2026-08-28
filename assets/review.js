@@ -264,17 +264,66 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     return (n < 0 ? "-" : "") + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   function calcTotal() {
-    return calcTape.reduce(function (sum, e) { return e.op === "-" ? sum - e.value : sum + e.value; }, 0);
+    return calcTape.reduce(function (acc, e) {
+      if (e.op === "-") return acc - e.value;
+      if (e.op === "×") return acc * e.value;
+      if (e.op === "÷") return e.value === 0 ? acc : acc / e.value;   // guarded upstream too
+      return acc + e.value;
+    }, 0);
   }
+
+  // Safe arithmetic evaluator — recursive descent over + - * / ( ) with a
+  // trailing % meaning "/100". Deliberately NOT eval(): this parses a fixed
+  // grammar and can't execute anything. Lets a reviewer type "1200*0.65" or
+  // "(4200+800)/12" straight into the tape.
   function parseFigure(raw) {
     if (raw == null) return NaN;
-    // tolerate "1,234.56", "$1,234.56", "(500)" for negatives, stray spaces
-    var s = String(raw).trim().replace(/[$,\s]/g, "");
-    var neg = /^\(.*\)$/.test(s);
-    if (neg) s = s.slice(1, -1);
-    if (!s || !/^-?\d*\.?\d+$/.test(s)) return NaN;
-    var n = parseFloat(s);
-    return neg ? -n : n;
+    var s = String(raw).trim().replace(/[$,\s]/g, "").replace(/×/g, "*").replace(/÷/g, "/");
+    if (!s) return NaN;
+    // accounting negatives: (500) -> -500, but only when it wraps the whole input
+    if (/^\([^()]*\)$/.test(s) && !/[+\-*/]/.test(s.slice(1, -1))) s = "-" + s.slice(1, -1);
+    if (!/^[0-9.+\-*/()%]+$/.test(s)) return NaN;
+
+    var i = 0;
+    function peek() { return s[i]; }
+    function expr() {
+      var v = term();
+      while (peek() === "+" || peek() === "-") { var op = s[i++]; var r = term(); if (isNaN(r)) return NaN; v = op === "+" ? v + r : v - r; }
+      return v;
+    }
+    function term() {
+      var v = factor();
+      while (peek() === "*" || peek() === "/") {
+        var op = s[i++]; var r = factor();
+        if (isNaN(r)) return NaN;
+        if (op === "/" && r === 0) return NaN;    // division by zero -> invalid, not Infinity
+        v = op === "*" ? v * r : v / r;
+      }
+      return v;
+    }
+    function factor() {
+      if (peek() === "-") { i++; var n = factor(); return isNaN(n) ? NaN : -n; }
+      if (peek() === "+") { i++; return factor(); }
+      var v;
+      if (peek() === "(") {
+        i++; v = expr();
+        if (peek() !== ")") return NaN;
+        i++;
+      } else {
+        var start = i;
+        while (i < s.length && /[0-9.]/.test(s[i])) i++;
+        if (i === start) return NaN;
+        var numStr = s.slice(start, i);
+        if ((numStr.match(/\./g) || []).length > 1) return NaN;
+        v = parseFloat(numStr);
+      }
+      while (peek() === "%") { i++; v = v / 100; }   // 7.5% -> 0.075
+      return v;
+    }
+
+    var out = expr();
+    if (i !== s.length || isNaN(out) || !isFinite(out)) return NaN;
+    return out;
   }
   function renderCalc() {
     var tape = $("#calcTape");
@@ -294,14 +343,28 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   }
   function calcPush(op) {
     var n = parseFigure($("#calcInput").value);
-    if (isNaN(n)) { $("#calcInput").select(); return; }
-    // a typed leading "-" already means subtract; don't negate twice
-    if (n < 0 && op === "-") { calcTape.push({ op: "-", value: Math.abs(n) }); }
-    else if (n < 0) { calcTape.push({ op: "-", value: Math.abs(n) }); }
-    else { calcTape.push({ op: op, value: n }); }
+    if (isNaN(n)) { flashCalcError(); return; }
+    if (op === "÷" && n === 0) { flashCalcError("Can't divide by zero"); return; }
+
+    if (op === "+" || op === "-") {
+      // a typed negative already means subtract; don't negate twice
+      if (n < 0) calcTape.push({ op: "-", value: Math.abs(n) });
+      else calcTape.push({ op: op, value: n });
+    } else {
+      // × and ÷ apply to the running total (adding-machine behaviour)
+      calcTape.push({ op: op, value: n });
+    }
     $("#calcInput").value = "";
     $("#calcInput").focus();
     renderCalc();
+  }
+
+  function flashCalcError(msg) {
+    var el = $("#calcInput");
+    el.style.borderColor = "#c0392b";
+    el.select();
+    if (msg) $("#toolHint").textContent = msg;
+    setTimeout(function () { el.style.borderColor = ""; }, 900);
   }
   function setStampArmed(on) {
     stampArmed = on;
@@ -627,6 +690,8 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     });
     $("#calcAdd").addEventListener("click", function () { calcPush("+"); });
     $("#calcSub").addEventListener("click", function () { calcPush("-"); });
+    $("#calcMul").addEventListener("click", function () { calcPush("×"); });
+    $("#calcDiv").addEventListener("click", function () { calcPush("÷"); });
     $("#calcUndo").addEventListener("click", function () { calcTape.pop(); renderCalc(); $("#calcInput").focus(); });
     $("#calcClear").addEventListener("click", function () { calcTape = []; renderCalc(); $("#calcInput").focus(); });
     $("#calcInput").addEventListener("keydown", function (e) {
