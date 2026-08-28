@@ -67,6 +67,13 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
   var ties = [];            // ties with at least one endpoint in the open document
   var pendingTie = null;    // first endpoint, waiting for the second click
 
+  // ---- calculator tape (M6) ----
+  // A manual adding machine: the reviewer keys figures in, watches the running
+  // total, and stamps it onto the page. No OCR is involved — this captures the
+  // footing WORKFLOW without pretending to read numbers off the document.
+  var calcTape = [];        // [{ op: "+"|"-", value: Number }]
+  var stampArmed = false;   // next page click drops the total
+
   // ---------- session / routing ----------
   async function boot() {
     var res = await sb.auth.getSession();
@@ -252,6 +259,81 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     drawAnnotations();
   }
 
+  // ---------- calculator tape ----------
+  function fmtMoney(n) {
+    return (n < 0 ? "-" : "") + Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function calcTotal() {
+    return calcTape.reduce(function (sum, e) { return e.op === "-" ? sum - e.value : sum + e.value; }, 0);
+  }
+  function parseFigure(raw) {
+    if (raw == null) return NaN;
+    // tolerate "1,234.56", "$1,234.56", "(500)" for negatives, stray spaces
+    var s = String(raw).trim().replace(/[$,\s]/g, "");
+    var neg = /^\(.*\)$/.test(s);
+    if (neg) s = s.slice(1, -1);
+    if (!s || !/^-?\d*\.?\d+$/.test(s)) return NaN;
+    var n = parseFloat(s);
+    return neg ? -n : n;
+  }
+  function renderCalc() {
+    var tape = $("#calcTape");
+    if (!calcTape.length) {
+      tape.innerHTML = '<div class="rv-calc-empty">Enter figures to foot a column.</div>';
+    } else {
+      tape.innerHTML = "";
+      calcTape.forEach(function (e) {
+        var row = document.createElement("div");
+        row.className = "rv-calc-row";
+        row.innerHTML = '<span class="op">' + e.op + "</span><span>" + fmtMoney(e.value) + "</span>";
+        tape.appendChild(row);
+      });
+      tape.scrollTop = tape.scrollHeight;
+    }
+    $("#calcTotal").textContent = fmtMoney(calcTotal());
+  }
+  function calcPush(op) {
+    var n = parseFigure($("#calcInput").value);
+    if (isNaN(n)) { $("#calcInput").select(); return; }
+    // a typed leading "-" already means subtract; don't negate twice
+    if (n < 0 && op === "-") { calcTape.push({ op: "-", value: Math.abs(n) }); }
+    else if (n < 0) { calcTape.push({ op: "-", value: Math.abs(n) }); }
+    else { calcTape.push({ op: op, value: n }); }
+    $("#calcInput").value = "";
+    $("#calcInput").focus();
+    renderCalc();
+  }
+  function setStampArmed(on) {
+    stampArmed = on;
+    $("#calcStamp").classList.toggle("armed", on);
+    $("#calcStamp").textContent = on ? "Click the page…" : "Stamp total";
+    var layer = $("#annoLayer");
+    if (layer) layer.classList.toggle("placing", on || tool.type !== "none");
+    if (on) $("#toolHint").textContent = "Click on the page to stamp " + fmtMoney(calcTotal()) + ". (Esc to cancel)";
+  }
+  async function stampTotal(xNorm, yNorm) {
+    var total = calcTotal();
+    // Keep the tape with the stamp so the figure is auditable later: first line
+    // is what's drawn on the page, the rest shows how it was computed.
+    var detail = calcTape.map(function (e) { return e.op + " " + fmtMoney(e.value); }).join("\n");
+    var row = {
+      workpaper_document_id: state.docId,
+      page: state.pageNum,
+      x: xNorm, y: yNorm,
+      type: "calc_stamp",
+      symbol: null,
+      text: fmtMoney(total) + (detail ? "\n---\n" + detail : ""),
+      color: "#1B2A4E",
+      created_by: currentUserEmail
+    };
+    var res = await sb.from("annotations").insert(row).select();
+    if (res.error) { console.error("stamp:", res.error); alert("Couldn't stamp that total: " + res.error.message); return; }
+    annotations.push((res.data && res.data[0]) || row);
+    setStampArmed(false);
+    $("#toolHint").textContent = "Total stamped.";
+    drawAnnotations();
+  }
+
   // ---------- tie marks ----------
   async function loadTies(docId) {
     // a tie is relevant if EITHER endpoint is in this document
@@ -411,11 +493,20 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
       el.className = "anno " + a.type;
       el.style.left = (Number(a.x) * 100) + "%";
       el.style.top = (Number(a.y) * 100) + "%";
+      // calc stamps store "total\n---\ntape detail": show the total, keep the
+      // working in the tooltip so a stamped figure stays auditable.
+      var stampTotalText = "", stampDetail = "";
+      if (a.type === "calc_stamp") {
+        var parts = String(a.text || "").split("\n---\n");
+        stampTotalText = parts[0]; stampDetail = parts[1] || "";
+      }
+
       if (a.type === "tic") { el.textContent = a.symbol || "✓"; el.style.color = a.color || "#c0392b"; }
-      else if (a.type === "calc_stamp") { el.textContent = a.text || ""; }
+      else if (a.type === "calc_stamp") { el.textContent = stampTotalText; }
       // note renders as the yellow square from CSS
 
       var tipText = (a.type === "note" && a.text ? a.text + "\n\n" : "")
+        + (a.type === "calc_stamp" && stampDetail ? "Footed:\n" + stampDetail + "\n\n" : "")
         + "— " + (a.created_by || "unknown")
         + (a.created_at ? "\n" + new Date(a.created_at).toLocaleString() : "");
       el.addEventListener("mouseenter", function () { showTip(el, tipText); });
@@ -475,11 +566,12 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     layer.className = "rv-anno-layer" + (tool.type !== "none" ? " placing" : "");
     layer.id = "annoLayer";
     layer.addEventListener("click", function (e) {
-      if (tool.type === "none") return;
+      if (tool.type === "none" && !stampArmed) return;
       var rect = layer.getBoundingClientRect();
       var xNorm = (e.clientX - rect.left) / rect.width;
       var yNorm = (e.clientY - rect.top) / rect.height;
       if (xNorm < 0 || xNorm > 1 || yNorm < 0 || yNorm > 1) return;
+      if (stampArmed) { stampTotal(xNorm, yNorm); return; }   // stamping wins over the active mark tool
       if (tool.type === "tie") { handleTieClick(xNorm, yNorm); return; }
       addAnnotation(xNorm, yNorm);
     });
@@ -513,8 +605,38 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     $("#signOut").addEventListener("click", function () { sb.auth.signOut(); });
     $("#clientSearch").addEventListener("input", renderClientList);
     $("#showInactive").addEventListener("change", renderClientList);
-    // Esc abandons a half-finished tie
-    document.addEventListener("keydown", function (e) { if (e.key === "Escape") cancelPendingTie(); });
+    // Esc abandons a half-finished tie or a primed stamp
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "Escape") return;
+      cancelPendingTie();
+      if (stampArmed) { setStampArmed(false); $("#toolHint").textContent = "Stamp cancelled."; }
+    });
+
+    // ---- calculator tape ----
+    $("#calcToggle").addEventListener("click", function () {
+      var panel = $("#calcPanel");
+      panel.hidden = !panel.hidden;
+      $("#calcToggle").classList.toggle("active", !panel.hidden);
+      if (!panel.hidden) { renderCalc(); $("#calcInput").focus(); }
+      else if (stampArmed) setStampArmed(false);
+    });
+    $("#calcClose").addEventListener("click", function () {
+      $("#calcPanel").hidden = true;
+      $("#calcToggle").classList.remove("active");
+      if (stampArmed) setStampArmed(false);
+    });
+    $("#calcAdd").addEventListener("click", function () { calcPush("+"); });
+    $("#calcSub").addEventListener("click", function () { calcPush("-"); });
+    $("#calcUndo").addEventListener("click", function () { calcTape.pop(); renderCalc(); $("#calcInput").focus(); });
+    $("#calcClear").addEventListener("click", function () { calcTape = []; renderCalc(); $("#calcInput").focus(); });
+    $("#calcInput").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); calcPush("+"); }
+      if (e.key === "-" && !$("#calcInput").value) { /* let a leading minus type normally */ }
+    });
+    $("#calcStamp").addEventListener("click", function () {
+      if (!state.docId) { $("#toolHint").textContent = "Open a document first."; return; }
+      setStampArmed(!stampArmed);
+    });
 
     // Annotation toolbar: pick a mark, then click the page to place it.
     document.querySelectorAll(".tool-btn").forEach(function (btn) {

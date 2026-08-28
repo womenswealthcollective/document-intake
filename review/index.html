@@ -28,7 +28,7 @@
   .rv-item:hover{background:#eef0f6;}
   .rv-item.active{background:#e3f6f1;border-left-color:var(--teal);font-weight:700;}
   .rv-item .rv-sub{display:block;font-size:11px;color:var(--muted);font-weight:400;margin-top:2px;}
-  .rv-main{display:flex;flex-direction:column;min-width:0;}
+  .rv-main{display:flex;flex-direction:column;min-width:0;position:relative;}
   .rv-toolbar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);
     flex:0 0 auto;flex-wrap:wrap;}
   .rv-toolbar .spacer{flex:1;}
@@ -70,6 +70,31 @@
     justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.25);}
   .anno.tie-pending{border-style:dashed;border-color:#c0392b;color:#c0392b;}
   .rv-tie-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+
+  /* ---- calculator tape (M6) ---- */
+  .rv-calc{position:absolute;right:18px;top:96px;z-index:15;width:210px;background:#fff;
+    border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 26px rgba(0,0,0,.28);
+    font-size:13px;overflow:hidden;}
+  .rv-calc-head{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;
+    background:var(--navy);color:#fff;font-weight:700;font-size:12px;letter-spacing:.3px;}
+  .rv-calc-head button{background:none;border:none;color:#fff;cursor:pointer;font-size:15px;line-height:1;padding:0 2px;}
+  .rv-calc-tape{max-height:190px;overflow-y:auto;padding:6px 10px;font-variant-numeric:tabular-nums;
+    background:#fcfcfd;border-bottom:1px solid var(--line);}
+  .rv-calc-row{display:flex;justify-content:space-between;gap:8px;padding:2px 0;color:var(--navy);}
+  .rv-calc-row .op{color:var(--muted);}
+  .rv-calc-empty{color:var(--muted);font-size:12px;padding:4px 0;}
+  .rv-calc-total{display:flex;justify-content:space-between;padding:8px 10px;font-weight:700;
+    color:var(--navy);border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums;}
+  .rv-calc-body{padding:8px 10px;display:flex;flex-direction:column;gap:6px;}
+  .rv-calc-body input{width:100%;padding:7px 9px;border:1px solid var(--line);border-radius:8px;
+    font-size:14px;font-family:inherit;text-align:right;font-variant-numeric:tabular-nums;}
+  .rv-calc-body input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(42,157,143,.15);}
+  .rv-calc-btns{display:flex;gap:5px;}
+  .rv-calc-btns button{flex:1;font-size:12px;font-weight:700;padding:6px 0;border-radius:7px;
+    border:1px solid var(--line);background:#fff;color:var(--navy);cursor:pointer;}
+  .rv-calc-btns button:hover{border-color:var(--teal);background:#f3fbf9;}
+  .rv-calc-stampbtn{background:var(--teal)!important;border-color:var(--teal)!important;color:#fff!important;}
+  .rv-calc-stampbtn.armed{background:#c0392b!important;border-color:#c0392b!important;}
   .anno:hover{outline:2px solid var(--teal);outline-offset:2px;}
   .anno-tip{position:absolute;z-index:20;background:var(--navy);color:#fff;font-size:11px;font-weight:400;
     padding:6px 9px;border-radius:6px;max-width:240px;pointer-events:none;transform:translate(-50%,-115%);
@@ -135,11 +160,37 @@
           <button class="tool-btn" data-tool="tic" data-symbol="A" title="Letter (click to cycle A-Z)" disabled>A</button>
           <button class="tool-btn" data-tool="note" title="Sticky note" disabled>&#9998;</button>
           <button class="tool-btn" data-tool="tie" title="Tie two figures together (click one, then the other — can be on another page or document)" disabled>&#8644;</button>
+          <button id="calcToggle" class="tool-btn" title="Calculator tape — foot a column and stamp the total">&#128425;</button>
           <span class="spacer"></span>
           <span id="toolHint" class="rv-hint">Select a document to start marking.</span>
         </div>
         <div id="canvasWrap" class="rv-canvas-wrap">
           <div class="rv-empty" id="rvEmpty">Select a client, then a document, to view it here.</div>
+        </div>
+
+        <!-- Calculator lives OUTSIDE #canvasWrap: that element is cleared on
+             every page render, which would otherwise wipe the panel. -->
+        <div id="calcPanel" class="rv-calc" hidden>
+          <div class="rv-calc-head">
+            <span>Calculator tape</span>
+            <button id="calcClose" title="Close">&times;</button>
+          </div>
+          <div id="calcTape" class="rv-calc-tape">
+            <div class="rv-calc-empty">Enter figures to foot a column.</div>
+          </div>
+          <div class="rv-calc-total"><span>Total</span><span id="calcTotal">0.00</span></div>
+          <div class="rv-calc-body">
+            <input id="calcInput" type="text" inputmode="decimal" placeholder="Type a figure, press Enter" />
+            <div class="rv-calc-btns">
+              <button id="calcAdd" title="Add">+</button>
+              <button id="calcSub" title="Subtract">&minus;</button>
+              <button id="calcUndo" title="Remove last entry">&#8592;</button>
+              <button id="calcClear" title="Clear tape">C</button>
+            </div>
+            <div class="rv-calc-btns">
+              <button id="calcStamp" class="rv-calc-stampbtn" title="Stamp this total onto the page">Stamp total</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -151,6 +202,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/assets/config.js?v=7"></script>
-<script type="module" src="/assets/review.js?v=8"></script>
+<script type="module" src="/assets/review.js?v=9"></script>
 </body>
 </html>
