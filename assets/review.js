@@ -9,6 +9,10 @@
    unlike supabase-js, which still loads as a classic global script below.
    Pinned to a verified version rather than a floating "@4" tag. */
 import * as pdfjsLib from "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.76/build/pdf.min.mjs";
+// pdf-lib writes the flattened export. Isomorphic + ESM, so it loads straight
+// from the CDN with no build step (version verified against the published
+// file listing before pinning).
+import { PDFDocument, StandardFonts, rgb } from "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.esm.min.js";
 
 // Browsers refuse to construct a Worker directly from a cross-origin URL
 // (confirmed: "Failed to construct 'Worker': Script ... cannot be accessed
@@ -257,6 +261,147 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     if (res.error) { console.error("save annotation:", res.error); alert("Couldn't save that mark: " + res.error.message); return; }
     annotations.push((res.data && res.data[0]) || row);
     drawAnnotations();
+  }
+
+  // ---------- export annotated PDF (M7) ----------
+  // Flattens every mark onto a copy of the original PDF and downloads it, so an
+  // annotated workpaper can leave the tool (for a file, a reviewer, an auditor).
+  //
+  // Two things that bite here and are handled explicitly:
+  //  1. pdf-lib's origin is BOTTOM-left; our stored coords are top-left
+  //     normalized, so y must be flipped: pdfY = height * (1 - yNorm).
+  //  2. The standard PDF fonts use WinAnsi encoding, which has NO glyph for
+  //     ✓ or ✗ — drawText would throw. Those are drawn as vector strokes
+  //     instead, and all user text is sanitised to WinAnsi-safe characters.
+  function winAnsiSafe(s) {
+    return String(s == null ? "" : s)
+      .replace(/[‘’‚‛]/g, "'")
+      .replace(/[“”„‟]/g, '"')
+      .replace(/[–—―]/g, "-")
+      .replace(/…/g, "...")
+      .replace(/ /g, " ")
+      .replace(/[^\x20-\x7E\xA0-\xFF]/g, "");   // drop anything else unencodable
+  }
+
+  function drawTic(page, symbol, x, y, color) {
+    var s = 5;   // half-size of the mark in PDF points
+    if (symbol === "✓") {
+      page.drawLine({ start: { x: x - s, y: y }, end: { x: x - s * 0.2, y: y - s * 0.8 }, thickness: 1.4, color: color });
+      page.drawLine({ start: { x: x - s * 0.2, y: y - s * 0.8 }, end: { x: x + s, y: y + s * 0.9 }, thickness: 1.4, color: color });
+    } else if (symbol === "✗" || symbol === "x" || symbol === "X") {
+      page.drawLine({ start: { x: x - s, y: y - s }, end: { x: x + s, y: y + s }, thickness: 1.4, color: color });
+      page.drawLine({ start: { x: x - s, y: y + s }, end: { x: x + s, y: y - s }, thickness: 1.4, color: color });
+    } else if (symbol === "•") {
+      page.drawCircle({ x: x, y: y, size: 2.6, color: color });
+    } else {
+      return false;   // a letter — caller draws it as text
+    }
+    return true;
+  }
+
+  async function exportAnnotatedPdf() {
+    if (!state.docId) { $("#toolHint").textContent = "Open a document first."; return; }
+    var btn = $("#exportBtn");
+    var origLabel = btn.textContent;
+    btn.disabled = true; btn.textContent = "Exporting…";
+    try {
+      var doc = allDocs.filter(function (d) { return d.id === state.docId; })[0];
+      var dl = await sb.storage.from("workpaper-docs").download(doc.storage_path);
+      if (dl.error) throw new Error("Couldn't fetch the original: " + dl.error.message);
+      var bytes = await dl.data.arrayBuffer();
+
+      var pdf = await PDFDocument.load(bytes);
+      var font = await pdf.embedFont(StandardFonts.Helvetica);
+      var fontBold = await pdf.embedFont(StandardFonts.HelveticaBold);
+      var pages = pdf.getPages();
+      var RED = rgb(0.75, 0.22, 0.17), NAVY = rgb(0.106, 0.165, 0.306),
+          BLUE = rgb(0.114, 0.435, 0.847), AMBER = rgb(0.965, 0.765, 0.267);
+
+      // --- point marks: tics, notes, calculator stamps ---
+      annotations.forEach(function (a) {
+        var pageIdx = Number(a.page) - 1;
+        if (pageIdx < 0 || pageIdx >= pages.length) return;
+        var page = pages[pageIdx];
+        var size = page.getSize();
+        var x = Number(a.x) * size.width;
+        var y = size.height * (1 - Number(a.y));   // flip: top-left -> bottom-left
+
+        if (a.type === "tic") {
+          if (!drawTic(page, a.symbol, x, y, RED)) {
+            var letter = winAnsiSafe(a.symbol || "").slice(0, 2) || "A";
+            page.drawText(letter, { x: x - 3, y: y - 4, size: 11, font: fontBold, color: RED });
+          }
+        } else if (a.type === "note") {
+          page.drawRectangle({ x: x - 5, y: y - 5, width: 10, height: 10, color: AMBER,
+            borderColor: rgb(0.79, 0.60, 0.12), borderWidth: 0.8 });
+          var noteText = winAnsiSafe(a.text || "");
+          if (noteText) {
+            // keep it on-page: single line, clipped, placed to the right
+            var maxChars = Math.max(10, Math.floor((size.width - x - 16) / 4.2));
+            var shown = noteText.length > maxChars ? noteText.slice(0, maxChars - 1) + "…".replace("…", "...") : noteText;
+            page.drawText(shown, { x: x + 9, y: y - 3, size: 7.5, font: font, color: NAVY });
+          }
+        } else if (a.type === "calc_stamp") {
+          var total = winAnsiSafe(String(a.text || "").split("\n---\n")[0]);
+          var w = font.widthOfTextAtSize(total, 9) + 8;
+          page.drawRectangle({ x: x - w / 2, y: y - 7, width: w, height: 14,
+            color: rgb(1, 1, 1), borderColor: NAVY, borderWidth: 0.8, opacity: 0.92 });
+          page.drawText(total, { x: x - w / 2 + 4, y: y - 3, size: 9, font: fontBold, color: NAVY });
+        }
+      });
+
+      // --- ties: numbered circles, plus a connecting line when both ends
+      //     are on the same page of THIS document ---
+      ties.forEach(function (t) {
+        [["a", t.doc_a, t.page_a, t.x_a, t.y_a], ["b", t.doc_b, t.page_b, t.x_b, t.y_b]].forEach(function (end) {
+          if (end[1] !== state.docId) return;
+          var pageIdx = Number(end[2]) - 1;
+          if (pageIdx < 0 || pageIdx >= pages.length) return;
+          var page = pages[pageIdx];
+          var size = page.getSize();
+          var x = Number(end[3]) * size.width;
+          var y = size.height * (1 - Number(end[4]));
+          page.drawCircle({ x: x, y: y, size: 7, borderColor: BLUE, borderWidth: 1.2, color: rgb(1, 1, 1), opacity: 0.9 });
+          var lbl = winAnsiSafe(t.label || "");
+          if (lbl) {
+            var lw = fontBold.widthOfTextAtSize(lbl, 7);
+            page.drawText(lbl, { x: x - lw / 2, y: y - 2.5, size: 7, font: fontBold, color: BLUE });
+          }
+        });
+        // connecting line only when both ends sit on the same page here
+        if (t.doc_a === state.docId && t.doc_b === state.docId && Number(t.page_a) === Number(t.page_b)) {
+          var pi = Number(t.page_a) - 1;
+          if (pi < 0 || pi >= pages.length) return;
+          var p = pages[pi]; var sz = p.getSize();
+          p.drawLine({
+            start: { x: Number(t.x_a) * sz.width, y: sz.height * (1 - Number(t.y_a)) },
+            end: { x: Number(t.x_b) * sz.width, y: sz.height * (1 - Number(t.y_b)) },
+            thickness: 0.9, color: BLUE, opacity: 0.85
+          });
+        }
+      });
+
+      // --- footer on page 1 so the export is self-describing ---
+      var p1 = pages[0], p1s = p1.getSize();
+      var stamp = winAnsiSafe("Reviewed in WWC Workpaper Review - " + (currentUserEmail || "") + " - " + new Date().toLocaleString());
+      p1.drawText(stamp, { x: 18, y: 12, size: 6.5, font: font, color: rgb(0.45, 0.47, 0.53) });
+
+      var out = await pdf.save();
+      var blob = new Blob([out], { type: "application/pdf" });
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = (doc.title || "document").replace(/[\\/:*?"<>|]/g, "-") + " (annotated).pdf";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+
+      var markCount = annotations.length + ties.filter(function (t) { return t.doc_a === state.docId || t.doc_b === state.docId; }).length;
+      $("#toolHint").textContent = "Exported with " + markCount + " mark" + (markCount === 1 ? "" : "s") + ".";
+    } catch (err) {
+      console.error("export failed:", err);
+      $("#toolHint").textContent = "Export failed: " + (err.message || err);
+    }
+    btn.disabled = false; btn.textContent = origLabel;
   }
 
   // ---------- calculator tape ----------
@@ -698,6 +843,7 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
       if (e.key === "Enter") { e.preventDefault(); calcPush("+"); }
       if (e.key === "-" && !$("#calcInput").value) { /* let a leading minus type normally */ }
     });
+    $("#exportBtn").addEventListener("click", exportAnnotatedPdf);
     $("#calcStamp").addEventListener("click", function () {
       if (!state.docId) { $("#toolHint").textContent = "Open a document first."; return; }
       setStampArmed(!stampArmed);
@@ -707,6 +853,10 @@ const workerBlobUrl = await fetch("https://cdn.jsdelivr.net/npm/pdfjs-dist@4.7.7
     document.querySelectorAll(".tool-btn").forEach(function (btn) {
       btn.addEventListener("click", function () {
         var type = btn.dataset.tool;
+        // Export and the calculator toggle share the .tool-btn class for styling
+        // but aren't mark tools — without this they'd fall through and arm a
+        // "tic" tool with an undefined symbol.
+        if (!type) return;
         if (type === "none") { setTool("none", null, btn); return; }
         if (type === "note") { setTool("note", null, btn); return; }
         if (type === "tie") { setTool("tie", null, btn); return; }
