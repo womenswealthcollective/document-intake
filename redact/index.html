@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>PII Redaction — Women's Wealth Collective</title>
+<link rel="icon" href="/assets/logo-wwc-300-round.png" />
+<link rel="stylesheet" href="/assets/style.css?v=7" />
+<style>
+  .rd-privacy{display:flex;gap:10px;align-items:flex-start;background:#e3f6f1;border:1px solid #b8e6db;
+    border-radius:12px;padding:12px 14px;margin-bottom:18px;font-size:13px;color:var(--navy);}
+  .rd-privacy b{display:block;margin-bottom:2px;}
+  .rd-drop{border:2px dashed var(--line);border-radius:14px;padding:34px 20px;text-align:center;
+    background:#fafbfe;cursor:pointer;transition:.15s;}
+  .rd-drop:hover,.rd-drop.over{border-color:var(--teal);background:#f3fbf9;}
+  .rd-drop .big{font-size:15px;font-weight:700;color:var(--navy);}
+  .rd-drop .small{font-size:12px;color:var(--muted);margin-top:5px;}
+  .rd-layout{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start;}
+  @media(max-width:900px){.rd-layout{grid-template-columns:1fr;}}
+  .rd-stage{background:#525659;border-radius:12px;padding:16px;overflow:auto;max-height:74vh;}
+  .rd-pagewrap{position:relative;margin:0 auto 14px;background:#fff;box-shadow:0 3px 14px rgba(0,0,0,.3);}
+  .rd-pagewrap canvas{display:block;}
+  .rd-overlay{position:absolute;inset:0;cursor:crosshair;}
+  .rd-hit{position:absolute;border:1.5px solid #c0392b;background:rgba(192,57,43,.22);cursor:pointer;}
+  .rd-hit.on{background:#111;border-color:#111;}
+  .rd-manual{position:absolute;background:#111;border:1.5px solid #111;cursor:pointer;}
+  .rd-drag{position:absolute;border:1.5px dashed #c0392b;background:rgba(192,57,43,.15);pointer-events:none;}
+  .rd-side .card{padding:14px;}
+  .rd-group{border-bottom:1px solid var(--line);padding:8px 0;}
+  .rd-group:last-child{border-bottom:none;}
+  .rd-group label{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--navy);cursor:pointer;}
+  .rd-group .cnt{margin-left:auto;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;}
+  .rd-list{max-height:190px;overflow-y:auto;margin-top:8px;}
+  .rd-item{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 0;color:var(--navy);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .rd-item .pg{margin-left:auto;color:var(--muted);font-size:11px;font-family:inherit;}
+  .rd-pagenav{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
+  .mini{font-size:12px;font-weight:700;padding:6px 12px;border-radius:8px;border:1px solid var(--teal);
+    background:#fff;color:var(--teal);cursor:pointer;}
+  .mini:hover{background:#f3fbf9;} .mini:disabled{opacity:.4;cursor:not-allowed;}
+  .rd-count{font-size:13px;font-weight:700;color:var(--navy);}
+  .rd-warn{background:#fbe7e4;border:1px solid #f3c6bf;color:#8c2f22;border-radius:10px;
+    padding:10px 12px;font-size:12px;margin-top:12px;}
+  .rd-status{font-size:12px;color:var(--muted);margin-top:10px;min-height:16px;}
+</style>
+</head>
+<body>
+<div class="wrap" style="max-width:1180px">
+  <div class="brandbar">
+    <img class="firm" src="/assets/logo-wwc-300-round.png" alt="WWC" />
+    <span class="firmname">Women's Wealth Collective</span>
+  </div>
+
+  <h1>PII Redaction</h1>
+  <p class="sub">Permanently remove SSNs, EINs and account numbers from a PDF before sharing it.</p>
+
+  <div class="rd-privacy">
+    <span style="font-size:18px">&#128274;</span>
+    <div>
+      <b>Your document never leaves this computer.</b>
+      Everything runs inside your browser — the file is not uploaded, stored, or sent anywhere.
+      Redaction works by flattening each page to an image, so the hidden text is destroyed, not just covered.
+    </div>
+  </div>
+
+  <div id="dropCard" class="card">
+    <div id="drop" class="rd-drop">
+      <div class="big">Drop a PDF here, or click to choose one</div>
+      <div class="small">Nothing is uploaded. Processing happens on your machine.</div>
+      <input id="file" type="file" accept="application/pdf" hidden />
+    </div>
+    <div id="loadMsg" class="rd-status"></div>
+  </div>
+
+  <div id="work" hidden>
+    <div class="rd-pagenav">
+      <button id="prev" class="mini">&larr; Prev</button>
+      <span id="pageLbl" class="rd-count">—</span>
+      <button id="next" class="mini">Next &rarr;</button>
+      <span style="flex:1"></span>
+      <span id="fileLbl" class="sub" style="margin:0"></span>
+    </div>
+
+    <div class="rd-layout">
+      <div class="rd-stage" id="stage"></div>
+
+      <div class="rd-side">
+        <div class="card">
+          <strong style="color:var(--navy);font-size:14px">Found in this document</strong>
+          <div id="groups" style="margin-top:10px"></div>
+          <div class="rd-status" id="scanMsg">Scanning…</div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <strong style="color:var(--navy);font-size:14px">Marked for redaction</strong>
+          <div id="selCount" class="rd-count" style="margin-top:6px">0 areas</div>
+          <div class="rd-status">Click any highlight to include or exclude it. Drag on the page to add your own box — needed for scanned documents, which have no searchable text.</div>
+          <button id="redactBtn" class="btn full" style="margin-top:12px" disabled>Redact &amp; download</button>
+          <div id="outMsg" class="rd-status"></div>
+          <div class="rd-warn">
+            The redacted copy is flattened to images, so text in it is no longer selectable or searchable.
+            That is what makes the removal permanent. Always keep your original.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="foot">Runs entirely in your browser. &copy; Women&rsquo;s Wealth Collective.</p>
+</div>
+
+<script type="module" src="/assets/redact.js?v=1"></script>
+</body>
+</html>
